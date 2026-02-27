@@ -19,7 +19,8 @@ body{
   background:white;
   margin-top:20px;
   padding:20px;
-  width:380px;
+  width:95%;
+  max-width:400px;
   border-radius:15px;
   box-shadow:0 6px 20px rgba(0,0,0,0.2);
   text-align:center;
@@ -31,22 +32,27 @@ video,img{
 }
 button{
   margin:5px;
-  padding:8px 12px;
+  padding:10px 14px;
   border:none;
   border-radius:8px;
   cursor:pointer;
+  background:#4CAF50;
+  color:white;
+}
+button:hover{
+  opacity:0.9;
 }
 </style>
 </head>
 
 <body>
 <div class="container">
-
 <h3>SeeForMe</h3>
 <p id="status">Loading model...</p>
 
 <input type="file" accept="image/*" id="upload">
 <br>
+
 <button onclick="startCamera()">Camera</button>
 <button onclick="switchCamera()">Switch Camera</button>
 <button onclick="capture()">Capture</button>
@@ -54,11 +60,9 @@ button{
 
 <video id="camera" autoplay playsinline style="display:none;"></video>
 <img id="preview">
-
 </div>
 
 <script>
-
 let model;
 let imageReady=false;
 let currentStream=null;
@@ -120,9 +124,12 @@ function switchCamera(){
 function capture(){
   const video=document.getElementById("camera");
   const canvas=document.createElement("canvas");
+
   canvas.width=video.videoWidth;
   canvas.height=video.videoHeight;
-  canvas.getContext("2d").drawImage(video,0,0);
+
+  const ctx=canvas.getContext("2d");
+  ctx.drawImage(video,0,0);
 
   const img=document.getElementById("preview");
   img.src=canvas.toDataURL();
@@ -139,7 +146,17 @@ async function analyze(){
   document.getElementById("status").innerText="Analyzing...";
 
   const img=document.getElementById("preview");
-  const predictions=await model.classify(img,3);
+
+  // Get top 5 predictions
+  const predictions=await model.classify(img,5);
+
+  // FILTER LOW CONFIDENCE (IMPORTANT FIX)
+  const filtered = predictions.filter(p => p.probability > 0.35);
+
+  if(filtered.length === 0){
+    document.getElementById("status").innerText="Not sure. Try again.";
+    return;
+  }
 
   function simplify(label){
     label=label.toLowerCase();
@@ -161,7 +178,7 @@ async function analyze(){
 
   let scores={};
 
-  predictions.forEach(p=>{
+  filtered.forEach(p=>{
     const simple=simplify(p.className);
     scores[simple]=(scores[simple]||0)+p.probability;
   });
@@ -180,9 +197,6 @@ function speak(text){
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(msg);
 }
-
 </script>
-
 </body>
-
-</html> 
+</html>
