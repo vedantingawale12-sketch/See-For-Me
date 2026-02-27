@@ -80,10 +80,12 @@ loadModel();
 
 document.getElementById("upload").addEventListener("change",(e)=>{
   const img=document.getElementById("preview");
+  img.onload = () => {
+    imageReady=true;
+    document.getElementById("analyzeBtn").disabled=false;
+  };
   img.src=URL.createObjectURL(e.target.files[0]);
   img.style.display="block";
-  imageReady=true;
-  document.getElementById("analyzeBtn").disabled=false;
 });
 
 async function startCamera(){
@@ -91,19 +93,8 @@ async function startCamera(){
     currentStream.getTracks().forEach(t=>t.stop());
   }
 
-  if(videoDevices.length===0){
-    const temp=await navigator.mediaDevices.getUserMedia({video:true});
-    temp.getTracks().forEach(t=>t.stop());
-    const devices=await navigator.mediaDevices.enumerateDevices();
-    videoDevices=devices.filter(d=>d.kind==="videoinput");
-  }
-
   const stream=await navigator.mediaDevices.getUserMedia({
-    video:{
-      deviceId: videoDevices[currentCameraIndex]?.deviceId
-        ? {exact:videoDevices[currentCameraIndex].deviceId}
-        : undefined
-    }
+    video:{ facingMode:"environment" } // 🔥 forces back camera
   });
 
   currentStream=stream;
@@ -111,35 +102,46 @@ async function startCamera(){
   video.srcObject=stream;
   video.style.display="block";
   document.getElementById("preview").style.display="none";
+
   await video.play();
+
+  // 🔥 wait until camera has real size
+  await new Promise(resolve=>{
+    video.onloadedmetadata=resolve;
+  });
 }
 
 function switchCamera(){
-  if(videoDevices.length>1){
-    currentCameraIndex=(currentCameraIndex+1)%videoDevices.length;
-    startCamera();
-  }else{
-    alert("Only one camera available");
-  }
+  alert("Using default back camera for stability.");
 }
 
 function capture(){
   const video=document.getElementById("camera");
 
+  if(video.videoWidth===0 || video.videoHeight===0){
+    alert("Camera not ready. Try again.");
+    return;
+  }
+
   const canvas=document.createElement("canvas");
-  canvas.width=video.videoWidth;
-  canvas.height=video.videoHeight;
+
+  // 🔥 Force stable size
+  canvas.width=224;
+  canvas.height=224;
 
   const ctx=canvas.getContext("2d");
-  ctx.drawImage(video,0,0);
+  ctx.drawImage(video,0,0,224,224);
 
   const img=document.getElementById("preview");
-  img.src=canvas.toDataURL();
+
+  img.onload = () => {
+    imageReady=true;
+    document.getElementById("analyzeBtn").disabled=false;
+  };
+
+  img.src=canvas.toDataURL("image/jpeg",0.95);
   img.style.display="block";
   video.style.display="none";
-
-  imageReady=true;
-  document.getElementById("analyzeBtn").disabled=false;
 }
 
 async function analyze(){
@@ -149,7 +151,11 @@ async function analyze(){
 
   const img=document.getElementById("preview");
 
-  // TOP 1 prediction only (most stable)
+  // ensure image fully loaded
+  if(!img.complete){
+    await new Promise(resolve=>img.onload=resolve);
+  }
+
   const predictions=await model.classify(img,1);
 
   function simplify(label){
@@ -183,5 +189,6 @@ function speak(text){
   window.speechSynthesis.speak(msg);
 }
 </script>
+
 </body>
 </html>
