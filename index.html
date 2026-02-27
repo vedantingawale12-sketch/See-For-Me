@@ -1,221 +1,178 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SeeForMe</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeeForMe AI</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
 
-<style>
-body{
-  font-family: Arial;
-  background:#f2f2f2;
-  display:flex;
-  justify-content:center;
-  margin:0;
-}
-.container{
-  background:white;
-  margin-top:20px;
-  padding:20px;
-  width:95%;
-  max-width:400px;
-  border-radius:15px;
-  box-shadow:0 6px 20px rgba(0,0,0,0.2);
-  text-align:center;
-}
-video,img{
-  width:100%;
-  border-radius:10px;
-  margin-top:10px;
-}
-button{
-  margin:5px;
-  padding:10px 14px;
-  border:none;
-  border-radius:8px;
-  cursor:pointer;
-  background:#4CAF50;
-  color:white;
-  font-size:14px;
-}
-button:hover{
-  opacity:0.9;
-}
-</style>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; display: flex; justify-content: center; margin: 0; padding: 20px; }
+        .container { background: white; padding: 25px; width: 100%; max-width: 420px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; }
+        h3 { color: #333; margin-bottom: 10px; }
+        #status { font-weight: bold; color: #555; margin-bottom: 15px; min-height: 1.2em; }
+        video, img { width: 100%; border-radius: 12px; margin-top: 10px; border: 2px solid #eee; }
+        .controls { margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button { padding: 12px; border: none; border-radius: 10px; cursor: pointer; background: #4CAF50; color: white; font-size: 15px; font-weight: 600; transition: 0.2s; }
+        button:hover { background: #45a049; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #analyzeBtn { grid-column: span 2; background: #2196F3; }
+        #analyzeBtn:hover { background: #1976D2; }
+        input[type="file"] { margin-bottom: 10px; width: 100%; }
+    </style>
 </head>
 
 <body>
 <div class="container">
-<h3>SeeForMe</h3>
-<p id="status">Loading model...</p>
+    <h3>SeeForMe</h3>
+    <p id="status">Initializing AI...</p>
 
-<input type="file" accept="image/*" id="upload">
-<br>
+    <input type="file" accept="image/*" id="upload">
+    
+    <video id="camera" autoplay playsinline style="display:none;"></video>
+    <img id="preview" style="display:none;">
 
-<button onclick="startCamera()">Camera</button>
-<button onclick="capture()">Capture</button>
-<button onclick="analyze()" id="analyzeBtn" disabled>Analyze</button>
-
-<video id="camera" autoplay playsinline style="display:none;"></video>
-<img id="preview">
-
+    <div class="controls">
+        <button onclick="startCamera()">Start Camera</button>
+        <button onclick="capture()">Capture Photo</button>
+        <button onclick="analyze()" id="analyzeBtn" disabled>Analyze Object</button>
+    </div>
 </div>
 
 <script>
-
 let model;
-let imageReady = false;
 let currentStream = null;
+let imageSource = null; // This will hold either the <img> or the <canvas>
 
-/* ================= LOAD MODEL ================= */
-
-async function loadModel(){
-  await tf.setBackend('webgl');
-  model = await mobilenet.load();
-  document.getElementById("status").innerText = "Model Ready";
+/* 1. LOAD MODEL (With WebGL acceleration) */
+async function loadModel() {
+    try {
+        await tf.ready();
+        model = await mobilenet.load();
+        document.getElementById("status").innerText = "Ready! Upload or use Camera.";
+    } catch (e) {
+        document.getElementById("status").innerText = "Error loading AI model.";
+    }
 }
 loadModel();
 
-/* ================= UPLOAD IMAGE ================= */
-
-document.getElementById("upload").addEventListener("change",(e)=>{
-  const img = document.getElementById("preview");
-
-  img.onload = () => {
-    imageReady = true;
-    document.getElementById("analyzeBtn").disabled = false;
-    document.getElementById("status").innerText = "Image Ready. Click Analyze.";
-  };
-
-  img.src = URL.createObjectURL(e.target.files[0]);
-  img.style.display = "block";
-  document.getElementById("camera").style.display = "none";
+/* 2. HANDLE UPLOAD */
+document.getElementById("upload").addEventListener("change", (e) => {
+    const img = document.getElementById("preview");
+    const reader = new FileReader();
+    
+    reader.onload = (f) => {
+        img.src = f.target.result;
+        img.style.display = "block";
+        document.getElementById("camera").style.display = "none";
+        
+        // Stop camera if it was running
+        if(currentStream) currentStream.getTracks().forEach(t => t.stop());
+        
+        img.onload = () => {
+            imageSource = img; // Set the source to the image element
+            document.getElementById("analyzeBtn").disabled = false;
+            document.getElementById("status").innerText = "Image loaded. Ready.";
+        };
+    };
+    reader.readAsDataURL(e.target.files[0]);
 });
 
-/* ================= START CAMERA ================= */
+/* 3. START CAMERA (Environment/Back facing) */
+async function startCamera() {
+    try {
+        if(currentStream) currentStream.getTracks().forEach(t => t.stop());
 
-async function startCamera(){
-  try {
-    if(currentStream){
-      currentStream.getTracks().forEach(t => t.stop());
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
+        });
+
+        currentStream = stream;
+        const video = document.getElementById("camera");
+        video.srcObject = stream;
+        video.style.display = "block";
+        document.getElementById("preview").style.display = "none";
+        document.getElementById("status").innerText = "Camera Active";
+        
+        // IMPORTANT: Ensure video metadata is loaded before trying to play
+        video.onloadedmetadata = () => video.play();
+    } catch (err) {
+        document.getElementById("status").innerText = "Camera access denied.";
+    }
+}
+
+/* 4. CAPTURE PHOTO (Using Canvas to avoid blank frames) */
+function capture() {
+    const video = document.getElementById("camera");
+    const img = document.getElementById("preview");
+
+    if (!video.srcObject) {
+        alert("Please start the camera first!");
+        return;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:"environment" }
-    });
+    // Create a temporary canvas to grab the frame
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    currentStream = stream;
+    // Show the static image to the user
+    img.src = canvas.toDataURL("image/jpeg");
+    img.style.display = "block";
+    video.style.display = "none";
 
-    const video = document.getElementById("camera");
-    video.srcObject = stream;
-    video.style.display = "block";
-    document.getElementById("preview").style.display = "none";
-    document.getElementById("status").innerText = "Camera Active";
-
-    // Wait for metadata before playing
-    await new Promise(resolve => {
-      video.onloadedmetadata = resolve;
-    });
+    // IMPORTANT: We use the CANVAS as the source for the AI
+    // This is much faster and more reliable than the <img> tag
+    imageSource = canvas; 
     
-    await video.play();
-
-  } catch (err) {
-    console.error("Camera error: ", err);
-    document.getElementById("status").innerText = "Camera access denied or unavailable.";
-  }
-}
-
-/* ================= CAPTURE PHOTO ================= */
-
-function capture(){
-  const video = document.getElementById("camera");
-  const img = document.getElementById("preview");
-
-  if (!video.srcObject || video.paused || video.ended) {
-    alert("Camera is not active. Please start the camera first.");
-    return;
-  }
-
-  if (!video.videoWidth || !video.videoHeight) {
-    alert("Camera is still initializing, please wait a moment.");
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  img.onload = () => {
-    imageReady = true;
     document.getElementById("analyzeBtn").disabled = false;
-    document.getElementById("status").innerText = "Image Captured. Ready to analyze.";
-  };
-
-  const dataUrl = canvas.toDataURL("image/jpeg", 1.0);
-  img.src = dataUrl;
-  
-  img.style.display = "block";
-  video.style.display = "none";
+    document.getElementById("status").innerText = "Captured! Ready to analyze.";
 }
 
-/* ================= ANALYZE IMAGE ================= */
+/* 5. ANALYZE IMAGE (With Memory Cleanup) */
+async function analyze() {
+    if (!imageSource) return;
 
-async function analyze(){
+    const btn = document.getElementById("analyzeBtn");
+    const status = document.getElementById("status");
 
-  if(!imageReady) return;
+    status.innerText = "Thinking...";
+    btn.disabled = true;
 
-  document.getElementById("status").innerText = "Analyzing...";
+    // Use tf.tidy to prevent memory leaks on mobile devices
+    const predictions = await tf.tidy(async () => {
+        return await model.classify(imageSource, 1);
+    });
 
-  const img = document.getElementById("preview");
+    if (predictions && predictions.length > 0) {
+        const result = simplify(predictions[0].className);
+        const text = "It is a " + result + ".";
+        status.innerText = text;
+        speak(text);
+    }
 
-  if(!img.complete){
-    await new Promise(resolve => img.onload = resolve);
-  }
+    btn.disabled = false;
+}
 
-  const predictions = await model.classify(img, 1);
-
-  function simplify(label){
-
+/* 6. HELPERS */
+function simplify(label) {
     label = label.toLowerCase();
-
-    if(label.match(/cat|tabby|persian|siamese|tiger cat/))
-      return "cat";
-
-    if(label.match(/dog|hound|retriever|shepherd|terrier|poodle|husky|bulldog|beagle/))
-      return "dog";
-
-    if(label.match(/car|jeep|sports car|convertible/))
-      return "car";
-
-    if(label.includes("bottle"))
-      return "bottle";
-
+    if (label.match(/cat|tabby|siamese/)) return "cat";
+    if (label.match(/dog|hound|retriever|terrier/)) return "dog";
+    if (label.match(/phone|iphone|cellular/)) return "smartphone";
+    if (label.includes("bottle")) return "bottle";
     return label.split(",")[0].trim();
-  }
-
-  const simple = simplify(predictions[0].className);
-
-  const response = "It is a " + simple + ".";
-
-  document.getElementById("status").innerText = response;
-  speak(response);
 }
 
-/* ================= TEXT TO SPEECH ================= */
-
-function speak(text){
-  const msg = new SpeechSynthesisUtterance(text);
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(msg);
+function speak(text) {
+    const msg = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(msg);
 }
-
 </script>
-
 </body>
 </html>
