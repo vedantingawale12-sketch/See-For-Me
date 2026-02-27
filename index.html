@@ -67,36 +67,39 @@ button:hover{
 <script>
 
 let model;
-let imageReady=false;
-let currentStream=null;
+let imageReady = false;
+let currentStream = null;
+
+/* ================= LOAD MODEL ================= */
 
 async function loadModel(){
   await tf.setBackend('webgl');
   model = await mobilenet.load();
-  document.getElementById("status").innerText="Model Ready";
+  document.getElementById("status").innerText = "Model Ready";
 }
 loadModel();
 
-/* ================= UPLOAD ================= */
+/* ================= UPLOAD IMAGE ================= */
 
 document.getElementById("upload").addEventListener("change",(e)=>{
-  const img=document.getElementById("preview");
+  const img = document.getElementById("preview");
 
   img.onload = () => {
-    imageReady=true;
-    document.getElementById("analyzeBtn").disabled=false;
+    imageReady = true;
+    document.getElementById("analyzeBtn").disabled = false;
   };
 
-  img.src=URL.createObjectURL(e.target.files[0]);
-  img.style.display="block";
+  img.src = URL.createObjectURL(e.target.files[0]);
+  img.style.display = "block";
+  document.getElementById("camera").style.display = "none";
 });
 
-/* ================= CAMERA ================= */
+/* ================= START CAMERA ================= */
 
 async function startCamera(){
 
   if(currentStream){
-    currentStream.getTracks().forEach(t=>t.stop());
+    currentStream.getTracks().forEach(t => t.stop());
   }
 
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -105,71 +108,69 @@ async function startCamera(){
 
   currentStream = stream;
 
-  const video=document.getElementById("camera");
-  video.srcObject=stream;
-  video.style.display="block";
-  document.getElementById("preview").style.display="none";
+  const video = document.getElementById("camera");
+  video.srcObject = stream;
+  video.style.display = "block";
+  document.getElementById("preview").style.display = "none";
 
   await video.play();
 
   await new Promise(resolve=>{
-    video.onloadedmetadata=resolve;
+    video.onloadedmetadata = resolve;
   });
 }
 
-/* ================= CAPTURE ================= */
+/* ================= CAPTURE PHOTO ================= */
 
 function capture(){
 
-  const video=document.getElementById("camera");
+  const video = document.getElementById("camera");
 
-  if(video.videoWidth===0 || video.videoHeight===0){
+  if(video.videoWidth === 0 || video.videoHeight === 0){
     alert("Camera not ready. Try again.");
     return;
   }
 
-  const canvas=document.createElement("canvas");
+  const canvas = document.createElement("canvas");
 
-  // ✅ USE FULL RESOLUTION
+  // Use FULL resolution (important for accuracy)
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
-  const ctx=canvas.getContext("2d");
-  ctx.drawImage(video,0,0);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0);
 
-  const img=document.getElementById("preview");
+  const img = document.getElementById("preview");
 
   img.onload = () => {
-    imageReady=true;
-    document.getElementById("analyzeBtn").disabled=false;
+    imageReady = true;
+    document.getElementById("analyzeBtn").disabled = false;
   };
 
-  // ✅ MAX QUALITY
-  img.src=canvas.toDataURL("image/jpeg",1.0);
-
-  img.style.display="block";
-  video.style.display="none";
+  img.src = canvas.toDataURL("image/jpeg", 1.0);
+  img.style.display = "block";
+  video.style.display = "none";
 }
 
-/* ================= ANALYZE ================= */
+/* ================= ANALYZE IMAGE ================= */
 
 async function analyze(){
 
   if(!imageReady) return;
 
-  document.getElementById("status").innerText="Analyzing...";
+  document.getElementById("status").innerText = "Analyzing...";
 
-  const img=document.getElementById("preview");
+  const img = document.getElementById("preview");
 
   if(!img.complete){
-    await new Promise(resolve=>img.onload=resolve);
+    await new Promise(resolve => img.onload = resolve);
   }
 
-  const predictions = await model.classify(img,1);
+  const predictions = await model.classify(img, 1);
 
   function simplify(label){
 
-    label=label.toLowerCase();
+    label = label.toLowerCase();
 
     if(label.match(/cat|tabby|persian|siamese|tiger cat/))
       return "cat";
@@ -187,19 +188,17 @@ async function analyze(){
   }
 
   const simple = simplify(predictions[0].className);
-  const confidence = (predictions[0].probability * 100).toFixed(1);
 
-  const response = "It is a " + simple + 
-                   " (" + confidence + "% sure).";
+  const response = "It is a " + simple + ".";
 
   document.getElementById("status").innerText = response;
   speak(response);
 }
 
-/* ================= SPEAK ================= */
+/* ================= TEXT TO SPEECH ================= */
 
 function speak(text){
-  const msg=new SpeechSynthesisUtterance(text);
+  const msg = new SpeechSynthesisUtterance(text);
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(msg);
 }
