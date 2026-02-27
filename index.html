@@ -44,10 +44,6 @@ button{
 button:hover{
   opacity:0.9;
 }
-button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
 </style>
 </head>
 
@@ -64,11 +60,12 @@ button:disabled {
 <button onclick="analyze()" id="analyzeBtn" disabled>Analyze</button>
 
 <video id="camera" autoplay playsinline style="display:none;"></video>
-<img id="preview" style="display:none;">
+<img id="preview">
 
 </div>
 
 <script>
+
 let model;
 let imageReady = false;
 let currentStream = null;
@@ -78,7 +75,7 @@ let currentStream = null;
 async function loadModel(){
   await tf.setBackend('webgl');
   model = await mobilenet.load();
-  document.getElementById("status").innerText = "Model Ready. Upload or use Camera.";
+  document.getElementById("status").innerText = "Model Ready";
 }
 loadModel();
 
@@ -90,16 +87,12 @@ document.getElementById("upload").addEventListener("change",(e)=>{
   img.onload = () => {
     imageReady = true;
     document.getElementById("analyzeBtn").disabled = false;
-    document.getElementById("status").innerText = "Image loaded. Ready to analyze.";
+    document.getElementById("status").innerText = "Image Ready. Click Analyze.";
   };
 
   img.src = URL.createObjectURL(e.target.files[0]);
   img.style.display = "block";
   document.getElementById("camera").style.display = "none";
-  
-  if(currentStream){
-    currentStream.getTracks().forEach(t => t.stop());
-  }
 });
 
 /* ================= START CAMERA ================= */
@@ -122,11 +115,13 @@ async function startCamera(){
     document.getElementById("preview").style.display = "none";
     document.getElementById("status").innerText = "Camera Active";
 
-    await video.play();
-
-    await new Promise(resolve=>{
+    // Wait for metadata before playing
+    await new Promise(resolve => {
       video.onloadedmetadata = resolve;
     });
+    
+    await video.play();
+
   } catch (err) {
     console.error("Camera error: ", err);
     document.getElementById("status").innerText = "Camera access denied or unavailable.";
@@ -139,43 +134,43 @@ function capture(){
   const video = document.getElementById("camera");
   const img = document.getElementById("preview");
 
-  // Check if video is actually streaming
   if (!video.srcObject || video.paused || video.ended) {
     alert("Camera is not active. Please start the camera first.");
     return;
   }
 
-  // Create the canvas
+  if (!video.videoWidth || !video.videoHeight) {
+    alert("Camera is still initializing, please wait a moment.");
+    return;
+  }
+
   const canvas = document.createElement("canvas");
-  
-  // Use the actual video stream dimensions
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
   const ctx = canvas.getContext("2d");
-  
-  // Draw the current frame
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  // Convert to data URL and update preview
+  img.onload = () => {
+    imageReady = true;
+    document.getElementById("analyzeBtn").disabled = false;
+    document.getElementById("status").innerText = "Image Captured. Ready to analyze.";
+  };
+
   const dataUrl = canvas.toDataURL("image/jpeg", 1.0);
   img.src = dataUrl;
   
-  // Update UI States
   img.style.display = "block";
   video.style.display = "none";
-  imageReady = true;
-  document.getElementById("analyzeBtn").disabled = false;
-  document.getElementById("status").innerText = "Image Captured. Ready to analyze.";
 }
 
 /* ================= ANALYZE IMAGE ================= */
 
 async function analyze(){
+
   if(!imageReady) return;
 
   document.getElementById("status").innerText = "Analyzing...";
-  document.getElementById("analyzeBtn").disabled = true; // Disable while thinking
 
   const img = document.getElementById("preview");
 
@@ -186,21 +181,29 @@ async function analyze(){
   const predictions = await model.classify(img, 1);
 
   function simplify(label){
+
     label = label.toLowerCase();
 
-    if(label.match(/cat|tabby|persian|siamese|tiger cat/)) return "cat";
-    if(label.match(/dog|hound|retriever|shepherd|terrier|poodle|husky|bulldog|beagle/)) return "dog";
-    if(label.match(/car|jeep|sports car|convertible/)) return "car";
-    if(label.includes("bottle")) return "bottle";
+    if(label.match(/cat|tabby|persian|siamese|tiger cat/))
+      return "cat";
+
+    if(label.match(/dog|hound|retriever|shepherd|terrier|poodle|husky|bulldog|beagle/))
+      return "dog";
+
+    if(label.match(/car|jeep|sports car|convertible/))
+      return "car";
+
+    if(label.includes("bottle"))
+      return "bottle";
 
     return label.split(",")[0].trim();
   }
 
   const simple = simplify(predictions[0].className);
+
   const response = "It is a " + simple + ".";
 
   document.getElementById("status").innerText = response;
-  document.getElementById("analyzeBtn").disabled = false; // Re-enable
   speak(response);
 }
 
